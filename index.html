@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PathFinder AI | Cloud-Native Learning Path Generator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <style>
+:root {
+  --bg: #f4efe3;
+  --bg-accent: #e2d4b7;
+  --panel: rgba(255, 250, 240, 0.78);
+  --panel-strong: #fff9ef;
+  --text: #1f2a1f;
+  --muted: #6f6a5f;
+  --line: rgba(57, 47, 31, 0.1);
+  --primary: #0f766e;
+  --primary-dark: #0a4f4b;
+  --secondary: #c96c3d;
+  --shadow: 0 24px 60px rgba(92, 67, 35, 0.14);
+  --radius: 24px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Manrope", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(201, 108, 61, 0.18), transparent 32%),
+    radial-gradient(circle at 85% 20%, rgba(15, 118, 110, 0.18), transparent 28%),
+    linear-gradient(135deg, #f7f2e8 0%, #efe4cc 48%, #f8f4ea 100%);
+}
+
+.page-shell {
+  width: min(1240px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 24px 0 36px;
+}
+
+.hero {
+  display: block;
+  margin-bottom: 20px;
+}
+
+.hero-copy,
+.panel {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow);
+  border-radius: var(--radius);
+}
+
+.hero-copy {
+  padding: 32px;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-copy::after {
+  content: "";
+  position: absolute;
+  inset: auto -80px -90px auto;
+  width: 240px;
+  height: 240px;
+  background: radial-gradient(circle, rgba(15, 118, 110, 0.22), transparent 68%);
+  pointer-events: none;
+}
+
+.eyebrow,
+.section-kicker,
+.stat-label,
+.arch-card span,
+.pill,
+.panel-meta {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.75rem;
+}
+
+.hero h1,
+.panel h2,
+.roadmap-step h3,
+.json-header h3 {
+  margin: 0;
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.hero h1 {
+  margin-top: 10px;
+  font-size: clamp(2.4rem, 6vw, 4.8rem);
+  line-height: 0.95;
+}
+
+.hero-text {
+  max-width: 62ch;
+  color: var(--muted);
+  font-size: 1.02rem;
+  line-height: 1.7;
+  margin: 18px 0 24px;
+}
+
+.service-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.service-tags span,
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(57, 47, 31, 0.08);
+}
+
+.dashboard-layout {
+  display: grid;
+  grid-template-columns: minmax(380px, 0.98fr) minmax(520px, 1.08fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.panel {
+  padding: 24px;
+  height: 100%;
+}
+
+.generator-panel {
+  min-height: 100%;
+}
+
+.generator-panel,
+.roadmap-panel {
+  min-height: 580px;
+}
+
+.roadmap-panel .panel-heading {
+  margin-bottom: 20px;
+}
+
+.panel-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 18px;
+  min-height: 72px;
+}
+
+.panel-heading h2 {
+  line-height: 1.1;
+}
+
+.panel-heading > div {
+  display: grid;
+  gap: 8px;
+}
+
+.panel-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 32px;
+  white-space: nowrap;
+}
+
+.path-form {
+  display: grid;
+  gap: 18px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field span {
+  font-weight: 700;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  border: 1px solid rgba(57, 47, 31, 0.15);
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--text);
+  border-radius: 16px;
+  padding: 16px 18px;
+  font: inherit;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: rgba(15, 118, 110, 0.45);
+  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
+  transform: translateY(-1px);
+}
+
+.action-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.primary-btn,
+.secondary-btn {
+  border: none;
+  border-radius: 16px;
+  padding: 14px 20px;
+  min-width: 150px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.primary-btn {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #f7fff8;
+  box-shadow: 0 18px 30px rgba(15, 118, 110, 0.22);
+}
+
+.secondary-btn {
+  background: #fff;
+  color: var(--secondary);
+  border: 1px solid rgba(201, 108, 61, 0.2);
+}
+
+.primary-btn:hover,
+.secondary-btn:hover {
+  transform: translateY(-2px);
+}
+
+.primary-btn:disabled,
+.secondary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.status-message {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--primary-dark);
+  font-weight: 600;
+}
+
+.architecture-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.arch-card {
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--panel-strong);
+  border: 1px solid rgba(57, 47, 31, 0.08);
+}
+
+.arch-card strong {
+  display: block;
+  margin-top: 10px;
+}
+
+.roadmap-card {
+  height: 520px;
+  min-height: 520px;
+  padding: 14px;
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(250, 243, 228, 0.85)),
+    #fff;
+  border: 1px solid rgba(57, 47, 31, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  overflow: hidden;
+}
+
+.roadmap-card.empty {
+  display: grid;
+  place-items: center;
+}
+
+.empty-state {
+  text-align: center;
+  max-width: 36ch;
+  color: var(--muted);
+  padding: 36px 24px;
+}
+
+.roadmap-list {
+  display: grid;
+  gap: 14px;
+  height: 100%;
+  overflow-y: auto;
+  padding-right: 10px;
+  padding-bottom: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(15, 118, 110, 0.32) transparent;
+}
+
+.roadmap-step,
+.roadmap-summary {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(57, 47, 31, 0.08);
+}
+
+.step-index {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(201, 108, 61, 0.16), rgba(15, 118, 110, 0.12));
+  color: var(--secondary);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.roadmap-step p,
+.community-card p {
+  margin: 6px 0 0;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.roadmap-summary {
+  margin-bottom: 4px;
+  padding: 16px;
+}
+
+.roadmap-summary h3 {
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.roadmap-summary p {
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.roadmap-accordion {
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(57, 47, 31, 0.08);
+  overflow: hidden;
+  min-height: 74px;
+}
+
+.roadmap-accordion + .roadmap-accordion {
+  margin-top: 10px;
+}
+
+.roadmap-accordion {
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 52px 1fr 24px;
+  gap: 16px;
+  align-items: center;
+  padding: 18px;
+  min-height: 74px;
+}
+
+.roadmap-accordion > div:nth-child(2) {
+  display: flex;
+  align-items: center;
+  min-height: 52px;
+}
+
+.roadmap-accordion h3 {
+  margin: 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1rem;
+  line-height: 1.2;
+  font-weight: 700;
+  padding-right: 8px;
+  text-align: left;
+}
+
+.accordion-icon {
+  font-size: 1.4rem;
+  color: var(--secondary);
+  text-align: center;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.json-block {
+  margin-top: 18px;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(57, 47, 31, 0.08);
+}
+
+.hidden {
+  display: none !important;
+}
+
+.json-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  background: rgba(31, 42, 31, 0.92);
+  color: #ecf6ec;
+}
+
+#jsonOutput {
+  margin: 0;
+  padding: 18px;
+  min-height: 220px;
+  overflow: auto;
+  background: #172119;
+  color: #b6ffde;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.community-feed {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  min-height: 68px;
+}
+
+.community-card {
+  padding: 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(57, 47, 31, 0.08);
+}
+
+.community-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.community-card h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.community-card ul {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: grid;
+  gap: 8px;
+}
+
+.community-card li {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(15, 118, 110, 0.08);
+  font-size: 0.92rem;
+}
+
+.community-empty {
+  padding: 24px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
+  text-align: center;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 22, 14, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 50;
+}
+
+.modal.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-card {
+  width: min(560px, 100%);
+  background: #fffdf7;
+  border: 1px solid rgba(57, 47, 31, 0.1);
+  border-radius: 24px;
+  box-shadow: 0 30px 70px rgba(57, 47, 31, 0.2);
+  padding: 24px;
+}
+
+.modal-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+
+.modal-top h3 {
+  margin: 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1.35rem;
+  line-height: 1.25;
+}
+
+.modal-close {
+  border: none;
+  background: rgba(201, 108, 61, 0.12);
+  color: var(--secondary);
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  font-size: 1.3rem;
+  cursor: pointer;
+}
+
+.modal-body {
+  color: var(--muted);
+  line-height: 1.75;
+  font-size: 1rem;
+}
+
+.accent {
+  color: var(--primary-dark);
+}
+
+@media (max-width: 980px) {
+  .hero,
+  .dashboard-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .generator-panel {
+    min-height: auto;
+  }
+
+  .generator-panel,
+  .roadmap-panel {
+    min-height: auto;
+  }
+
+  .roadmap-card {
+    height: auto;
+    min-height: 420px;
+  }
+
+  .roadmap-list {
+    height: auto;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .architecture-strip {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .page-shell {
+    width: min(100% - 20px, 1240px);
+    padding-top: 20px;
+  }
+
+  .hero-copy,
+  .panel {
+    padding: 20px;
+  }
+
+  .architecture-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-heading,
+  .json-header,
+  .community-card header {
+    flex-direction: column;
+  }
+
+  .roadmap-step {
+    grid-template-columns: 1fr;
+  }
+
+  .roadmap-summary,
+  .roadmap-accordion {
+    grid-template-columns: 1fr;
+  }
+}
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Cloud-Native Personalized Learning Path Generator</p>
+        <h1>PathFinder AI</h1>
+        <p class="hero-text">
+          Generate structured learning paths with Gemini, save them to Firestore,
+          export polished PDFs, and view the latest community learning journeys in real time.
+        </p>
+      </div>
+    </header>
+
+    <main class="dashboard-layout">
+      <section class="panel generator-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">Generate roadmap</p>
+            <h2>Learning Plan</h2>
+          </div>
+        </div>
+
+        <form id="pathForm" class="path-form">
+          <label class="field">
+            <span>Goal</span>
+            <input
+              id="goalInput"
+              name="goal"
+              type="text"
+              placeholder="Example: Learn Python for Data Science"
+              required
+            >
+          </label>
+
+          <label class="field">
+            <span>Difficulty</span>
+            <select id="difficultyInput" name="difficulty" required>
+              <option value="Beginner">Beginner</option>
+              <option value="Intermediate">Intermediate</option>
+              <option value="Advanced">Advanced</option>
+            </select>
+          </label>
+
+          <div class="action-row">
+            <button id="generateBtn" type="submit" class="primary-btn">Generate Path</button>
+            <button id="exportBtn" type="button" class="secondary-btn" disabled>Export as PDF</button>
+          </div>
+        </form>
+
+        <div id="statusMessage" class="status-message">
+          Enter a goal and generate a cloud-backed roadmap.
+        </div>
+
+      </section>
+
+      <section class="panel roadmap-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">Generated output</p>
+            <h2>Latest Personalized Path</h2>
+          </div>
+          <span id="lastGeneratedAt" class="panel-meta">No path generated yet</span>
+        </div>
+
+        <div id="roadmapCard" class="roadmap-card empty">
+          <div class="empty-state">
+            <h3>Your 5-step roadmap will appear here</h3>
+            <p>Your generated 5-step roadmap will appear here.</p>
+          </div>
+        </div>
+
+        <div class="json-block hidden">
+          <div class="json-header">
+            <h3>Structured JSON Preview</h3>
+            <span>JSON output</span>
+          </div>
+          <pre id="jsonOutput">Waiting for generated JSON...</pre>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <div id="stepModal" class="modal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-top">
+        <div>
+          <p class="section-kicker">Step Details</p>
+          <h3 id="modalTitle">Step Title</h3>
+        </div>
+        <button id="modalClose" class="modal-close" type="button">x</button>
+      </div>
+      <div id="modalBody" class="modal-body"></div>
+    </div>
+  </div>
+
+  <script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+import {
+  addDoc,
+  collection,
+  doc,
+  getFirestore,
+  serverTimestamp,
+  updateDoc
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import {
+  getDownloadURL,
+  getStorage,
+  ref,
+  uploadBytes
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
+
+const firebaseConfig = {
+  apiKey: "YOUR_FIREBASE_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+
+const GEMINI_API_KEY = "AIzaSyC1uvKD2lQrf2PCCAvqpLQebugDVopEmhI";
+const GEMINI_MODEL = "gemini-2.5-flash";
+const COLLECTION_NAME = "learning_paths";
+const PDF_FOLDER = "learning-path-pdfs";
+
+const firebaseReady = !Object.values(firebaseConfig).some((value) => value.startsWith("YOUR_"));
+const geminiReady = !GEMINI_API_KEY.startsWith("YOUR_");
+
+const app = firebaseReady ? initializeApp(firebaseConfig) : null;
+const db = firebaseReady ? getFirestore(app) : null;
+const storage = firebaseReady ? getStorage(app) : null;
+
+const userId = getOrCreateUserId();
+let currentPath = null;
+let lastSavedDocId = null;
+
+const form = document.getElementById("pathForm");
+const goalInput = document.getElementById("goalInput");
+const difficultyInput = document.getElementById("difficultyInput");
+const generateBtn = document.getElementById("generateBtn");
+const exportBtn = document.getElementById("exportBtn");
+const roadmapCard = document.getElementById("roadmapCard");
+const jsonOutput = document.getElementById("jsonOutput");
+const statusMessage = document.getElementById("statusMessage");
+const lastGeneratedAt = document.getElementById("lastGeneratedAt");
+const communityCount = null;
+const storageStatus = null;
+const stepModal = document.getElementById("stepModal");
+const modalTitle = document.getElementById("modalTitle");
+const modalBody = document.getElementById("modalBody");
+const modalClose = document.getElementById("modalClose");
+
+modalClose.addEventListener("click", closeStepModal);
+stepModal.addEventListener("click", (event) => {
+  if (event.target === stepModal) {
+    closeStepModal();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeStepModal();
+  }
+});
+
+form.addEventListener("submit", handleGeneratePath);
+exportBtn.addEventListener("click", exportCurrentPathAsPdf);
+
+async function handleGeneratePath(event) {
+  event.preventDefault();
+
+  const goal = goalInput.value.trim();
+  const difficulty = difficultyInput.value;
+
+  if (!goal) {
+    setStatus("Please enter a learning goal first.", "error");
+    return;
+  }
+
+  if (!geminiReady) {
+    setStatus("The AI service is temporarily unavailable.", "error");
+    return;
+  }
+
+  toggleGenerationState(true);
+  setStatus("Generating your learning path with Gemini...", "loading");
+
+  try {
+    const content = await generateLearningPath(goal, difficulty);
+    currentPath = {
+      goal,
+      difficulty,
+      content
+    };
+
+    renderRoadmap(currentPath);
+    exportBtn.disabled = false;
+
+    if (firebaseReady) {
+      const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+        goal,
+        difficulty,
+        content,
+        timestamp: serverTimestamp(),
+        userId
+      });
+
+      lastSavedDocId = docRef.id;
+    }
+
+    lastGeneratedAt.textContent = `Generated ${new Date().toLocaleString()}`;
+    setStatus(
+      firebaseReady
+        ? "Learning path generated and saved successfully."
+        : "Learning path generated successfully.",
+      "success"
+    );
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "Unable to generate the learning path.", "error");
+  } finally {
+    toggleGenerationState(false);
+  }
+}
+
+async function generateLearningPath(goal, difficulty) {
+  const prompt = `Create a structured 5-step learning path for ${goal} at ${difficulty} level. Return strictly as JSON with "title", "description", and "steps" array. Each item in "steps" must include "title" and "description".`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": GEMINI_API_KEY
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            {
+              text: prompt
+            }
+          ]
+        }
+      ],
+      generationConfig: {
+        temperature: 0.7,
+        responseMimeType: "application/json"
+      }
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Gemini request failed with status ${response.status}.`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!text) {
+    throw new Error("Gemini did not return any content.");
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error("Gemini returned invalid JSON.");
+  }
+
+  if (!parsed.title || !parsed.description || !Array.isArray(parsed.steps) || parsed.steps.length !== 5) {
+    throw new Error("Gemini response did not match the required 5-step JSON format.");
+  }
+
+  return {
+    title: parsed.title,
+    description: parsed.description,
+    steps: parsed.steps.map((step, index) => ({
+      title: step.title || `Step ${index + 1}`,
+      description: step.description || "Description not provided."
+    }))
+  };
+}
+
+function renderRoadmap(pathData) {
+  const { content } = pathData;
+  const shortDescription = truncateText(content.description, 140);
+
+  roadmapCard.classList.remove("empty");
+  roadmapCard.innerHTML = `
+    <div class="roadmap-list">
+      <article class="roadmap-summary">
+        <div class="step-index">AI</div>
+        <div>
+          <h3>${escapeHtml(content.title)}</h3>
+          <p>${escapeHtml(shortDescription)}</p>
+        </div>
+      </article>
+      ${content.steps.map((step, index) => `
+        <button
+          class="roadmap-accordion"
+          type="button"
+          data-step-title="${escapeHtml(step.title)}"
+          data-step-description="${escapeHtml(step.description)}"
+        >
+          <div class="step-index">${index + 1}</div>
+          <div>
+            <h3>Step ${index + 1}: ${escapeHtml(step.title)}</h3>
+          </div>
+          <span class="accordion-icon">+</span>
+        </button>
+      `).join("")}
+    </div>
+  `;
+
+  setupStepPopupBehavior();
+
+  jsonOutput.textContent = JSON.stringify({
+    goal: pathData.goal,
+    difficulty: pathData.difficulty,
+    content
+  }, null, 2);
+}
+
+async function exportCurrentPathAsPdf() {
+  if (!currentPath) {
+    setStatus("Generate a learning path before exporting it.", "error");
+    return;
+  }
+
+  const { content, goal, difficulty } = currentPath;
+  const pdfBlob = buildPdfBlob(goal, difficulty, content);
+
+  const downloadUrl = URL.createObjectURL(pdfBlob);
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.download = `${sanitizeForFileName(goal)}-pathfinder-ai.pdf`;
+  link.click();
+  URL.revokeObjectURL(downloadUrl);
+
+  if (!firebaseReady) {
+    if (storageStatus) {
+      storageStatus.textContent = "Downloaded";
+    }
+    setStatus("PDF downloaded successfully.", "success");
+    return;
+  }
+
+  try {
+    if (storageStatus) {
+      storageStatus.textContent = "Uploading PDF...";
+    }
+    const fileName = `${sanitizeForFileName(goal)}-${Date.now()}.pdf`;
+    const storageRef = ref(storage, `${PDF_FOLDER}/${userId}/${fileName}`);
+
+    await uploadBytes(storageRef, pdfBlob, {
+      contentType: "application/pdf"
+    });
+
+    const uploadedUrl = await getDownloadURL(storageRef);
+
+    if (lastSavedDocId) {
+      await updateDoc(doc(db, COLLECTION_NAME, lastSavedDocId), {
+        pdfUrl: uploadedUrl
+      });
+    }
+
+    if (storageStatus) {
+      storageStatus.textContent = "PDF uploaded";
+    }
+    setStatus("PDF downloaded and uploaded to Firebase Storage.", "success");
+  } catch (error) {
+    console.error(error);
+    if (storageStatus) {
+      storageStatus.textContent = "Upload failed";
+    }
+    setStatus("PDF downloaded locally, but Firebase Storage upload failed.", "error");
+  }
+}
+
+function buildPdfBlob(goal, difficulty, content) {
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF();
+  let y = 20;
+
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(20);
+  pdf.text("PathFinder AI", 14, y);
+  y += 10;
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(12);
+  pdf.text(`Goal: ${goal}`, 14, y);
+  y += 8;
+  pdf.text(`Difficulty: ${difficulty}`, 14, y);
+  y += 10;
+
+  pdf.setFont("helvetica", "bold");
+  pdf.text(content.title, 14, y);
+  y += 8;
+  pdf.setFont("helvetica", "normal");
+  const introLines = pdf.splitTextToSize(content.description, 180);
+  pdf.text(introLines, 14, y);
+  y += introLines.length * 6 + 8;
+
+  content.steps.forEach((step, index) => {
+    if (y > 255) {
+      pdf.addPage();
+      y = 20;
+    }
+
+    pdf.setFont("helvetica", "bold");
+    pdf.text(`${index + 1}. ${step.title}`, 14, y);
+    y += 7;
+
+    pdf.setFont("helvetica", "normal");
+    const lines = pdf.splitTextToSize(step.description, 180);
+    pdf.text(lines, 14, y);
+    y += lines.length * 6 + 6;
+  });
+
+  return pdf.output("blob");
+}
+
+function getOrCreateUserId() {
+  const storageKey = "pathfinder-ai-user-id";
+  const existing = localStorage.getItem(storageKey);
+
+  if (existing) {
+    return existing;
+  }
+
+  const generated = `user-${crypto.randomUUID().slice(0, 8)}`;
+  localStorage.setItem(storageKey, generated);
+  return generated;
+}
+
+function toggleGenerationState(isLoading) {
+  generateBtn.disabled = isLoading;
+  generateBtn.textContent = isLoading ? "Generating..." : "Generate Path";
+}
+
+function setStatus(message, type) {
+  statusMessage.textContent = message;
+  statusMessage.style.background =
+    type === "error"
+      ? "rgba(185, 28, 28, 0.12)"
+      : type === "success"
+        ? "rgba(22, 163, 74, 0.12)"
+        : "rgba(15, 118, 110, 0.08)";
+  statusMessage.style.color =
+    type === "error"
+      ? "#8f1d1d"
+      : type === "success"
+        ? "#166534"
+        : "#0a4f4b";
+}
+
+function sanitizeForFileName(value) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+function truncateText(value, maxLength) {
+  const text = String(value || "").trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength).trimEnd()}...`;
+}
+
+function setupStepPopupBehavior() {
+  const stepButtons = roadmapCard.querySelectorAll(".roadmap-accordion");
+
+  stepButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      openStepModal(
+        button.dataset.stepTitle || "Step",
+        button.dataset.stepDescription || "No description available."
+      );
+    });
+  });
+}
+
+function openStepModal(title, description) {
+  modalTitle.textContent = title;
+  modalBody.textContent = description;
+  stepModal.classList.add("open");
+  stepModal.setAttribute("aria-hidden", "false");
+}
+
+function closeStepModal() {
+  stepModal.classList.remove("open");
+  stepModal.setAttribute("aria-hidden", "true");
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+  </script>
+</body>
+</html>
