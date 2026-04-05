@@ -1,4 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-analytics.js";
 import {
   addDoc,
   collection,
@@ -19,12 +20,13 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
 
 const firebaseConfig = {
-  apiKey: "YOUR_FIREBASE_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyD_EB8n9NBCeRcSNZeSE3MHq2xVloLRarE",
+  authDomain: "pathfinder-ai-cb7c1.firebaseapp.com",
+  projectId: "pathfinder-ai-cb7c1",
+  storageBucket: "pathfinder-ai-cb7c1.firebasestorage.app",
+  messagingSenderId: "440797266159",
+  appId: "1:440797266159:web:ca867df5bdcd4e7460db1a",
+  measurementId: "G-77NX7FJ2MG"
 };
 
 const APP_CONFIG = {
@@ -40,6 +42,7 @@ const serverlessReady =
   !APP_CONFIG.serverlessApiUrl.includes("YOUR_SERVERLESS");
 
 const app = firebaseReady ? initializeApp(firebaseConfig) : null;
+const analytics = firebaseReady ? getAnalytics(app) : null;
 const db = firebaseReady ? getFirestore(app) : null;
 const storage = firebaseReady ? getStorage(app) : null;
 
