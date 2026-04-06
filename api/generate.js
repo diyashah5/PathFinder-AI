@@ -72,9 +72,24 @@ async function generateLearningPath(goal, difficulty) {
       return buildFallbackRoadmap(goal, difficulty);
     }
 
-    if (geminiResponse.status !== 429 && geminiResponse.status < 500) {
-      throw new Error(`Gemini request failed with status ${geminiResponse.status}.`);
-    }
+    if (!geminiResponse.ok) {
+  const errorText = await geminiResponse.text();
+  console.error("Gemini status:", geminiResponse.status);
+  console.error("Gemini response body:", errorText);
+
+  if (geminiResponse.status === 429 && attempt === MAX_RETRY_ATTEMPTS) {
+    return buildFallbackRoadmap(goal, difficulty);
+  }
+
+  if (geminiResponse.status >= 500 && attempt === MAX_RETRY_ATTEMPTS) {
+    return buildFallbackRoadmap(goal, difficulty);
+  }
+
+  if (geminiResponse.status !== 429 && geminiResponse.status < 500) {
+    throw new Error(`Gemini request failed with status ${geminiResponse.status}: ${errorText}`);
+  }
+}
+
 
     await wait(INITIAL_RETRY_DELAY_MS * (2 ** attempt));
   }
