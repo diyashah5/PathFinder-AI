@@ -32,11 +32,11 @@ async function generateLearningPath(goal, difficulty) {
     return buildFallbackRoadmap(goal, difficulty);
   }
 
-  const prompt = `Act as a senior ${goal} instructor.
-Create a 5-step roadmap to master ${goal} at a ${difficulty} level.
-Each step MUST be technically specific to ${goal}.
-For example, if the goal is React, mention Hooks and Virtual DOM.
-Format: Return ONLY a JSON array of 5 objects with "title" and "description".`;
+  const prompt = `Create a 5-step roadmap for ${goal} at a ${difficulty} level.
+Return ONLY a JSON array of 5 objects with "title" and "description".
+IMPORTANT: Do NOT include the words "Step 1", "Step 2", etc. in the "title" field.
+Example title: "Basics of Variables" instead of "Step 1: Basics of Variables".
+Each step MUST be technically specific to ${goal}.`;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
   let geminiResponse;
 

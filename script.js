@@ -323,7 +323,9 @@ function renderRoadmap(pathData) {
           <p>${escapeHtml(shortDescription)}</p>
         </div>
       </article>
-      ${content.steps.map((step, index) => `
+      ${content.steps.map((step, index) => {
+        const cleanTitle = String(step.title || "").replace(/^Step\s*\d+\s*:\s*/i, "");
+        return `
         <button
           class="roadmap-accordion"
           type="button"
@@ -332,11 +334,12 @@ function renderRoadmap(pathData) {
         >
           <div class="step-index">${index + 1}</div>
           <div>
-            <h3>Step ${index + 1}: ${escapeHtml(step.title)}</h3>
+            <h3>Step ${index + 1}: ${escapeHtml(cleanTitle || `Step ${index + 1}`)}</h3>
           </div>
           <span class="accordion-icon">+</span>
         </button>
-      `).join("")}
+      `;
+      }).join("")}
     </div>
   `;
 
