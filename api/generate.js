@@ -32,7 +32,11 @@ async function generateLearningPath(goal, difficulty) {
     return buildFallbackRoadmap(goal, difficulty);
   }
 
-  const prompt = `Create a structured 5-step learning path for ${goal} at ${difficulty} level. Return strictly as JSON with "title", "description", and "steps" array. Each item in "steps" must include "title" and "description".`;
+  const prompt = `Act as a senior ${goal} instructor.
+Create a 5-step roadmap to master ${goal} at a ${difficulty} level.
+Each step MUST be technically specific to ${goal}.
+For example, if the goal is React, mention Hooks and Virtual DOM.
+Format: Return ONLY a JSON array of 5 objects with "title" and "description".`;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
   let geminiResponse;
 
@@ -103,19 +107,22 @@ async function generateLearningPath(goal, difficulty) {
 
   try {
     const parsed = JSON.parse(text);
+    const steps = Array.isArray(parsed) ? parsed : parsed?.steps;
 
-    if (!parsed.title || !parsed.description || !Array.isArray(parsed.steps) || parsed.steps.length !== 5) {
+    if (!Array.isArray(steps) || steps.length !== 5) {
       return buildFallbackRoadmap(goal, difficulty);
     }
 
+    const normalizedSteps = steps.map((step, index) => ({
+      title: step?.title || `Step ${index + 1}`,
+      description: step?.description || "Description not provided."
+    }));
+
     return {
-      title: parsed.title,
-      description: parsed.description,
+      title: `${goal} Learning Roadmap`,
+      description: `A focused 5-step roadmap to master ${goal} at a ${difficulty} level.`,
       source: "gemini",
-      steps: parsed.steps.map((step, index) => ({
-        title: step.title || `Step ${index + 1}`,
-        description: step.description || "Description not provided."
-      }))
+      steps: normalizedSteps
     };
   } catch (error) {
     return buildFallbackRoadmap(goal, difficulty);
