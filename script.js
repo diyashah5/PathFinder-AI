@@ -24,16 +24,12 @@ const firebaseConfig = {
   measurementId: "G-77NX7FJ2MG"
 };
 
-const GEMINI_API_KEY = "AIzaSyBulN1hSyhZ4i29qyN5HfZSarC3SBJFSg8";
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GENERATE_API_URL = "/api/generate";
 const COLLECTION_NAME = "learning_paths";
 const PDF_FOLDER = "learning-path-pdfs";
 const GENERATION_COOLDOWN_MS = 60000;
-const MAX_RETRY_ATTEMPTS = 3;
-const INITIAL_RETRY_DELAY_MS = 2000;
 
 const firebaseReady = !Object.values(firebaseConfig).some((value) => value.startsWith("YOUR_"));
-const geminiReady = !GEMINI_API_KEY.startsWith("YOUR_");
 
 const app = firebaseReady ? initializeApp(firebaseConfig) : null;
 const db = firebaseReady ? getFirestore(app) : null;
@@ -89,11 +85,6 @@ async function handleGeneratePath(event) {
     return;
   }
 
-  if (!geminiReady) {
-    setStatus("The Gemini API key is missing.", "error");
-    return;
-  }
-
   if (Date.now() < nextGenerateAllowedAt) {
     const secondsRemaining = Math.ceil((nextGenerateAllowedAt - Date.now()) / 1000);
     generateBtn.disabled = true;
@@ -129,16 +120,43 @@ async function handleGeneratePath(event) {
     }
 
     lastGeneratedAt.textContent = `Generated ${new Date().toLocaleString()}`;
-    setStatus(
-      firebaseReady
-        ? "Learning path generated and saved successfully."
-        : "Learning path generated successfully.",
-      "success"
-    );
+    if (content.source === "fallback") {
+      setStatus("Gemini is busy right now, so a local backup roadmap was generated for your demo.", "success");
+    } else {
+      setStatus(
+        firebaseReady
+          ? "Learning path generated and saved successfully."
+          : "Learning path generated successfully.",
+        "success"
+      );
+    }
   } catch (error) {
     console.error(error);
-    if (error.status === 429) {
-      setStatus("Rate limit reached. Please wait 60 seconds.", "error");
+    if (error.status === 429 || error.message) {
+      const fallbackContent = buildFallbackRoadmap(goal, difficulty);
+      currentPath = {
+        goal,
+        difficulty,
+        content: fallbackContent
+      };
+
+      renderRoadmap(currentPath);
+      exportBtn.disabled = false;
+
+      if (firebaseReady) {
+        const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+          goal,
+          difficulty,
+          content: fallbackContent,
+          timestamp: serverTimestamp(),
+          userId
+        });
+
+        lastSavedDocId = docRef.id;
+      }
+
+      lastGeneratedAt.textContent = `Generated ${new Date().toLocaleString()}`;
+      setStatus("Gemini is busy right now, so a local backup roadmap was generated for your demo.", "success");
     } else {
       setStatus(error.message || "Unable to generate the learning path.", "error");
     }
@@ -148,77 +166,73 @@ async function handleGeneratePath(event) {
 }
 
 async function generateLearningPath(goal, difficulty) {
-  const prompt = `Create a structured 5-step learning path for ${goal} at ${difficulty} level. Return strictly as JSON with "title", "description", and "steps" array. Each item in "steps" must include "title" and "description".`;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-  let response;
+  const response = await fetch(GENERATE_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      goal,
+      difficulty
+    })
+  });
 
-  for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt += 1) {
-    response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: prompt
-              }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          responseMimeType: "application/json"
-        }
-      })
-    });
-
-    if (response.ok) {
-      break;
-    }
-
-    if (response.status !== 429 || attempt === MAX_RETRY_ATTEMPTS) {
-      const error = new Error(`Gemini request failed with status ${response.status}.`);
-      error.status = response.status;
-      throw error;
-    }
-
-    const retryDelayMs = INITIAL_RETRY_DELAY_MS * (2 ** attempt);
-    setStatus(
-      `Gemini is rate-limiting requests. Retrying in ${Math.ceil(retryDelayMs / 1000)} seconds...`,
-      "loading"
-    );
-    await wait(retryDelayMs);
+  if (!response.ok) {
+    const error = new Error(`Generation request failed with status ${response.status}.`);
+    error.status = response.status;
+    throw error;
   }
 
   const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-  if (!text) {
-    throw new Error("Gemini did not return any content.");
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch (error) {
-    throw new Error("Gemini returned invalid JSON.");
-  }
-
-  if (!parsed.title || !parsed.description || !Array.isArray(parsed.steps) || parsed.steps.length !== 5) {
-    throw new Error("Gemini response did not match the required 5-step JSON format.");
+  if (!data?.title || !data?.description || !Array.isArray(data.steps) || data.steps.length !== 5) {
+    throw new Error("The generation API returned an invalid roadmap.");
   }
 
   return {
-    title: parsed.title,
-    description: parsed.description,
-    steps: parsed.steps.map((step, index) => ({
+    title: data.title,
+    description: data.description,
+    source: data.source || "gemini",
+    steps: data.steps.map((step, index) => ({
       title: step.title || `Step ${index + 1}`,
       description: step.description || "Description not provided."
     }))
+  };
+}
+
+function buildFallbackRoadmap(goal, difficulty) {
+  const tone = difficulty === "Advanced"
+    ? "with deeper system design, optimization, and production-style tradeoffs."
+    : difficulty === "Intermediate"
+      ? "with hands-on projects and steady skill-building."
+      : "from fundamentals through confidence-building practice.";
+
+  return {
+    title: `${goal} Learning Roadmap`,
+    description: `A practical 5-step backup roadmap for learning ${goal} ${tone}`,
+    source: "fallback",
+    steps: [
+      {
+        title: `Learn the fundamentals of ${goal}`,
+        description: `Start with the core concepts, vocabulary, and tools needed to begin ${goal} successfully.`
+      },
+      {
+        title: "Follow guided practice",
+        description: "Use tutorials, exercises, and small drills to reinforce the basics with repetition."
+      },
+      {
+        title: "Build a small project",
+        description: `Apply what you learned in a focused mini project so ${goal} becomes practical instead of purely theoretical.`
+      },
+      {
+        title: "Handle real-world scenarios",
+        description: "Study debugging, best practices, edge cases, and more realistic workflows to grow confidence."
+      },
+      {
+        title: "Create a polished capstone",
+        description: "Finish with a stronger portfolio-ready project and review what to learn next."
+      }
+    ]
   };
 }
 
@@ -412,12 +426,6 @@ function startGenerateCooldown() {
 function updateCooldownLabel() {
   const secondsLeft = Math.max(1, Math.ceil((nextGenerateAllowedAt - Date.now()) / 1000));
   generateBtn.textContent = `Wait ${secondsLeft}s...`;
-}
-
-function wait(durationMs) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, durationMs);
-  });
 }
 
 function setStatus(message, type) {
