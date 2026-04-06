@@ -27,7 +27,6 @@ const firebaseConfig = {
 const GENERATE_API_URL = "/api/generate";
 const COLLECTION_NAME = "learning_paths";
 const PDF_FOLDER = "learning-path-pdfs";
-const GENERATION_COOLDOWN_MS = 60000;
 
 const firebaseReady = !Object.values(firebaseConfig).some((value) => value.startsWith("YOUR_"));
 
@@ -38,9 +37,6 @@ const storage = firebaseReady ? getStorage(app) : null;
 const userId = getOrCreateUserId();
 let currentPath = null;
 let lastSavedDocId = null;
-let nextGenerateAllowedAt = 0;
-let cooldownTimeoutId = null;
-let cooldownIntervalId = null;
 
 const form = document.getElementById("pathForm");
 const goalInput = document.getElementById("goalInput");
@@ -85,14 +81,6 @@ async function handleGeneratePath(event) {
     return;
   }
 
-  if (Date.now() < nextGenerateAllowedAt) {
-    const secondsRemaining = Math.ceil((nextGenerateAllowedAt - Date.now()) / 1000);
-    generateBtn.disabled = true;
-    updateCooldownLabel();
-    setStatus(`Rate limit guard active. Please wait ${secondsRemaining} seconds.`, "error");
-    return;
-  }
-
   setGeneratingState("AI is thinking...");
   setStatus("Generating your learning path with Gemini...", "loading");
 
@@ -106,20 +94,24 @@ async function handleGeneratePath(event) {
 
     renderRoadmap(currentPath);
     exportBtn.disabled = false;
+    lastGeneratedAt.textContent = `Generated ${new Date().toLocaleString()}`;
 
     if (firebaseReady) {
-      const docRef = await addDoc(collection(db, COLLECTION_NAME), {
-        goal,
-        difficulty,
-        content,
-        timestamp: serverTimestamp(),
-        userId
-      });
+      try {
+        const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+          goal,
+          difficulty,
+          content,
+          timestamp: serverTimestamp(),
+          userId
+        });
 
-      lastSavedDocId = docRef.id;
+        lastSavedDocId = docRef.id;
+      } catch (saveError) {
+        console.error(saveError);
+        lastSavedDocId = null;
+      }
     }
-
-    lastGeneratedAt.textContent = `Generated ${new Date().toLocaleString()}`;
     if (content.source === "fallback") {
       setStatus("Gemini is busy right now, so a local backup roadmap was generated for your demo.", "success");
     } else {
@@ -142,26 +134,30 @@ async function handleGeneratePath(event) {
 
       renderRoadmap(currentPath);
       exportBtn.disabled = false;
+      lastGeneratedAt.textContent = `Generated ${new Date().toLocaleString()}`;
 
       if (firebaseReady) {
-        const docRef = await addDoc(collection(db, COLLECTION_NAME), {
-          goal,
-          difficulty,
-          content: fallbackContent,
-          timestamp: serverTimestamp(),
-          userId
-        });
+        try {
+          const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+            goal,
+            difficulty,
+            content: fallbackContent,
+            timestamp: serverTimestamp(),
+            userId
+          });
 
-        lastSavedDocId = docRef.id;
+          lastSavedDocId = docRef.id;
+        } catch (saveError) {
+          console.error(saveError);
+          lastSavedDocId = null;
+        }
       }
-
-      lastGeneratedAt.textContent = `Generated ${new Date().toLocaleString()}`;
       setStatus("Gemini is busy right now, so a local backup roadmap was generated for your demo.", "success");
     } else {
       setStatus(error.message || "Unable to generate the learning path.", "error");
     }
   } finally {
-    startGenerateCooldown();
+    resetGenerateButton();
   }
 }
 
@@ -394,38 +390,9 @@ function setGeneratingState(label) {
   generateBtn.textContent = label;
 }
 
-function startGenerateCooldown() {
-  nextGenerateAllowedAt = Date.now() + GENERATION_COOLDOWN_MS;
-
-  if (cooldownTimeoutId) {
-    clearTimeout(cooldownTimeoutId);
-  }
-  if (cooldownIntervalId) {
-    clearInterval(cooldownIntervalId);
-  }
-
-  generateBtn.disabled = true;
-  updateCooldownLabel();
-
-  cooldownIntervalId = window.setInterval(() => {
-    updateCooldownLabel();
-  }, 1000);
-
-  cooldownTimeoutId = window.setTimeout(() => {
-    nextGenerateAllowedAt = 0;
-    cooldownTimeoutId = null;
-    if (cooldownIntervalId) {
-      clearInterval(cooldownIntervalId);
-      cooldownIntervalId = null;
-    }
-    generateBtn.disabled = false;
-    generateBtn.textContent = "Generate Path";
-  }, GENERATION_COOLDOWN_MS);
-}
-
-function updateCooldownLabel() {
-  const secondsLeft = Math.max(1, Math.ceil((nextGenerateAllowedAt - Date.now()) / 1000));
-  generateBtn.textContent = `Wait ${secondsLeft}s...`;
+function resetGenerateButton() {
+  generateBtn.disabled = false;
+  generateBtn.textContent = "Generate Path";
 }
 
 function setStatus(message, type) {
