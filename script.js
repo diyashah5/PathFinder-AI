@@ -1,14 +1,9 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
-import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-analytics.js";
 import {
   addDoc,
   collection,
   doc,
   getFirestore,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
   serverTimestamp,
   updateDoc
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
@@ -29,26 +24,24 @@ const firebaseConfig = {
   measurementId: "G-77NX7FJ2MG"
 };
 
-const APP_CONFIG = {
-  serverlessApiUrl: "YOUR_SERVERLESS_ENDPOINT_URL",
-  openAIModel: "gpt-4o-mini",
-  geminiModel: "gemini-1.5-flash",
-  pdfFolder: "learning-path-pdfs"
-};
+const GEMINI_API_KEY = "AIzaSyBulN1hSyhZ4i29qyN5HfZSarC3SBJFSg8";
+const GEMINI_MODEL = "gemini-2.5-flash";
+const COLLECTION_NAME = "learning_paths";
+const PDF_FOLDER = "learning-path-pdfs";
+const GENERATION_COOLDOWN_MS = 60000;
 
 const firebaseReady = !Object.values(firebaseConfig).some((value) => value.startsWith("YOUR_"));
-const serverlessReady =
-  APP_CONFIG.serverlessApiUrl &&
-  !APP_CONFIG.serverlessApiUrl.includes("YOUR_SERVERLESS");
+const geminiReady = !GEMINI_API_KEY.startsWith("YOUR_");
 
 const app = firebaseReady ? initializeApp(firebaseConfig) : null;
-const analytics = firebaseReady ? getAnalytics(app) : null;
 const db = firebaseReady ? getFirestore(app) : null;
 const storage = firebaseReady ? getStorage(app) : null;
 
 const userId = getOrCreateUserId();
 let currentPath = null;
 let lastSavedDocId = null;
+let nextGenerateAllowedAt = 0;
+let cooldownTimeoutId = null;
 
 const form = document.getElementById("pathForm");
 const goalInput = document.getElementById("goalInput");
@@ -59,27 +52,28 @@ const roadmapCard = document.getElementById("roadmapCard");
 const jsonOutput = document.getElementById("jsonOutput");
 const statusMessage = document.getElementById("statusMessage");
 const lastGeneratedAt = document.getElementById("lastGeneratedAt");
-const communityFeed = document.getElementById("communityFeed");
-const communityCount = document.getElementById("communityCount");
-const userIdBadge = document.getElementById("userIdBadge");
 const storageStatus = document.getElementById("storageStatus");
+const stepModal = document.getElementById("stepModal");
+const modalTitle = document.getElementById("modalTitle");
+const modalBody = document.getElementById("modalBody");
+const modalClose = document.getElementById("modalClose");
 
-userIdBadge.textContent = userId;
+if (modalClose && stepModal) {
+  modalClose.addEventListener("click", closeStepModal);
+  stepModal.addEventListener("click", (event) => {
+    if (event.target === stepModal) {
+      closeStepModal();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeStepModal();
+    }
+  });
+}
 
 form.addEventListener("submit", handleGeneratePath);
 exportBtn.addEventListener("click", exportCurrentPathAsPdf);
-
-if (firebaseReady) {
-  subscribeToCommunityPaths();
-} else {
-  communityFeed.innerHTML = `
-    <div class="community-empty">
-      Add your Firebase config in <code>script.js</code> to enable Firestore and realtime community updates.
-    </div>
-  `;
-  communityCount.textContent = "Firebase not configured";
-  storageStatus.textContent = "Awaiting Firebase setup";
-}
 
 async function handleGeneratePath(event) {
   event.preventDefault();
@@ -92,322 +86,261 @@ async function handleGeneratePath(event) {
     return;
   }
 
-  toggleGenerationState(true);
-  setStatus("Generating a 5-step roadmap through the serverless AI function...", "loading");
+  if (!geminiReady) {
+    setStatus("The Gemini API key is missing.", "error");
+    return;
+  }
+
+  if (Date.now() < nextGenerateAllowedAt) {
+    const secondsRemaining = Math.ceil((nextGenerateAllowedAt - Date.now()) / 1000);
+    setStatus(`Rate limit guard active. Please wait ${secondsRemaining} seconds.`, "error");
+    return;
+  }
+
+  setGeneratingState("AI is thinking...");
+  setStatus("Generating your learning path with Gemini...", "loading");
 
   try {
-    const generatedPath = await requestLearningPath({ goal, difficulty, userId });
-    currentPath = normalizePath(generatedPath, goal, difficulty);
+    const content = await generateLearningPath(goal, difficulty);
+    currentPath = {
+      goal,
+      difficulty,
+      content
+    };
+
     renderRoadmap(currentPath);
+    exportBtn.disabled = false;
 
     if (firebaseReady) {
-      const docRef = await addDoc(collection(db, "learningPaths"), {
-        userId,
-        goal: currentPath.goal,
-        difficulty: currentPath.difficulty,
-        createdAt: serverTimestamp(),
-        steps: currentPath.steps,
-        provider: currentPath.provider,
-        metadata: currentPath.metadata
+      const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+        goal,
+        difficulty,
+        content,
+        timestamp: serverTimestamp(),
+        userId
       });
 
       lastSavedDocId = docRef.id;
-      exportBtn.disabled = false;
-    } else {
-      lastSavedDocId = null;
-      exportBtn.disabled = true;
     }
 
-    const generatedAt = new Date();
-    lastGeneratedAt.textContent = `Generated ${generatedAt.toLocaleString()}`;
+    lastGeneratedAt.textContent = `Generated ${new Date().toLocaleString()}`;
     setStatus(
       firebaseReady
-        ? "Roadmap generated and saved to Firestore successfully."
-        : "Roadmap generated in demo mode. Add Firebase config to save and sync it.",
+        ? "Learning path generated and saved successfully."
+        : "Learning path generated successfully.",
       "success"
     );
   } catch (error) {
     console.error(error);
-    setStatus(error.message || "Failed to generate the learning path.", "error");
+    if (error.status === 429) {
+      setStatus("Rate limit reached. Please wait 60 seconds.", "error");
+    } else {
+      setStatus(error.message || "Unable to generate the learning path.", "error");
+    }
   } finally {
-    toggleGenerationState(false);
+    startGenerateCooldown();
   }
 }
 
-async function requestLearningPath(payload) {
-  const prompt = {
-    instruction:
-      "Create a personalized learning roadmap as valid JSON only. Return exactly 5 ordered steps. Each step must include title, description, duration, and outcome.",
-    schema: {
-      goal: "string",
-      difficulty: "string",
-      steps: [
-        {
-          step: 1,
-          title: "string",
-          description: "string",
-          duration: "string",
-          outcome: "string"
-        }
-      ]
-    },
-    input: payload
-  };
+async function generateLearningPath(goal, difficulty) {
+  const prompt = `Create a structured 5-step learning path for ${goal} at ${difficulty} level. Return strictly as JSON with "title", "description", and "steps" array. Each item in "steps" must include "title" and "description".`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
-  if (!serverlessReady) {
-    return buildDemoRoadmap(payload);
-  }
-
-  const response = await fetch(APP_CONFIG.serverlessApiUrl, {
+  const response = await fetch(url, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "x-goog-api-key": GEMINI_API_KEY
     },
     body: JSON.stringify({
-      ...payload,
-      provider: "openai-or-gemini",
-      openAIModel: APP_CONFIG.openAIModel,
-      geminiModel: APP_CONFIG.geminiModel,
-      prompt
+      contents: [
+        {
+          parts: [
+            {
+              text: prompt
+            }
+          ]
+        }
+      ],
+      generationConfig: {
+        temperature: 0.7,
+        responseMimeType: "application/json"
+      }
     })
   });
 
   if (!response.ok) {
-    throw new Error(`Serverless function failed with status ${response.status}.`);
+    const error = new Error(`Gemini request failed with status ${response.status}.`);
+    error.status = response.status;
+    throw error;
   }
 
   const data = await response.json();
-  return data.path || data;
-}
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-function normalizePath(data, goal, difficulty) {
-  const steps = Array.isArray(data.steps) ? data.steps.slice(0, 5) : [];
+  if (!text) {
+    throw new Error("Gemini did not return any content.");
+  }
 
-  if (steps.length !== 5) {
-    throw new Error("The AI response did not contain exactly 5 steps.");
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error("Gemini returned invalid JSON.");
+  }
+
+  if (!parsed.title || !parsed.description || !Array.isArray(parsed.steps) || parsed.steps.length !== 5) {
+    throw new Error("Gemini response did not match the required 5-step JSON format.");
   }
 
   return {
-    goal: data.goal || goal,
-    difficulty: data.difficulty || difficulty,
-    provider: data.provider || "serverless-demo",
-    metadata: data.metadata || {
-      model: data.model || APP_CONFIG.openAIModel,
-      source: "cloud-function"
-    },
-    steps: steps.map((step, index) => ({
-      step: index + 1,
+    title: parsed.title,
+    description: parsed.description,
+    steps: parsed.steps.map((step, index) => ({
       title: step.title || `Step ${index + 1}`,
-      description: step.description || "Description not provided.",
-      duration: step.duration || "1 week",
-      outcome: step.outcome || "Solid conceptual progress."
+      description: step.description || "Description not provided."
     }))
   };
 }
 
-function renderRoadmap(path) {
+function renderRoadmap(pathData) {
+  const { content } = pathData;
+  const shortDescription = truncateText(content.description, 140);
+
   roadmapCard.classList.remove("empty");
   roadmapCard.innerHTML = `
     <div class="roadmap-list">
-      ${path.steps.map((step) => `
-        <article class="roadmap-step">
-          <div class="step-index">${step.step}</div>
+      <article class="roadmap-summary">
+        <div class="step-index">AI</div>
+        <div>
+          <h3>${escapeHtml(content.title)}</h3>
+          <p>${escapeHtml(shortDescription)}</p>
+        </div>
+      </article>
+      ${content.steps.map((step, index) => `
+        <button
+          class="roadmap-accordion"
+          type="button"
+          data-step-title="${escapeHtml(step.title)}"
+          data-step-description="${escapeHtml(step.description)}"
+        >
+          <div class="step-index">${index + 1}</div>
           <div>
-            <h3>${escapeHtml(step.title)}</h3>
-            <p>${escapeHtml(step.description)}</p>
-            <p><strong>Duration:</strong> ${escapeHtml(step.duration)}</p>
-            <p><strong>Outcome:</strong> ${escapeHtml(step.outcome)}</p>
+            <h3>Step ${index + 1}: ${escapeHtml(step.title)}</h3>
           </div>
-        </article>
+          <span class="accordion-icon">+</span>
+        </button>
       `).join("")}
     </div>
   `;
 
-  jsonOutput.textContent = JSON.stringify(path, null, 2);
+  setupStepPopupBehavior();
+
+  jsonOutput.textContent = JSON.stringify({
+    goal: pathData.goal,
+    difficulty: pathData.difficulty,
+    content
+  }, null, 2);
 }
 
 async function exportCurrentPathAsPdf() {
   if (!currentPath) {
-    setStatus("Generate a learning path before exporting.", "error");
+    setStatus("Generate a learning path before exporting it.", "error");
     return;
   }
+
+  const { content, goal, difficulty } = currentPath;
+  const pdfBlob = buildPdfBlob(goal, difficulty, content);
+
+  const downloadUrl = URL.createObjectURL(pdfBlob);
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.download = `${sanitizeForFileName(goal)}-pathfinder-ai.pdf`;
+  link.click();
+  URL.revokeObjectURL(downloadUrl);
 
   if (!firebaseReady) {
-    setStatus("Add Firebase Storage config before exporting PDFs to the cloud.", "error");
+    if (storageStatus) {
+      storageStatus.textContent = "Downloaded";
+    }
+    setStatus("PDF downloaded successfully.", "success");
     return;
   }
 
-  exportBtn.disabled = true;
-  storageStatus.textContent = "Generating PDF...";
-  setStatus("Creating the PDF and uploading it to Firebase Storage...", "loading");
-
   try {
-    const pdfBlob = buildPdfBlob(currentPath);
-    const fileName = `${sanitizeForFileName(currentPath.goal)}-${Date.now()}.pdf`;
-    const storageRef = ref(storage, `${APP_CONFIG.pdfFolder}/${userId}/${fileName}`);
+    if (storageStatus) {
+      storageStatus.textContent = "Uploading PDF...";
+    }
+    const fileName = `${sanitizeForFileName(goal)}-${Date.now()}.pdf`;
+    const storageRef = ref(storage, `${PDF_FOLDER}/${userId}/${fileName}`);
 
     await uploadBytes(storageRef, pdfBlob, {
       contentType: "application/pdf"
     });
 
-    const downloadUrl = await getDownloadURL(storageRef);
+    const uploadedUrl = await getDownloadURL(storageRef);
 
     if (lastSavedDocId) {
-      await updateDoc(doc(db, "learningPaths", lastSavedDocId), {
-        pdfUrl: downloadUrl,
-        pdfFileName: fileName,
-        exportedAt: serverTimestamp()
+      await updateDoc(doc(db, COLLECTION_NAME, lastSavedDocId), {
+        pdfUrl: uploadedUrl
       });
     }
 
-    storageStatus.textContent = "PDF uploaded to cloud storage";
-    setStatus("PDF exported and saved to Firebase Storage successfully.", "success");
-    window.open(downloadUrl, "_blank", "noopener");
+    if (storageStatus) {
+      storageStatus.textContent = "PDF uploaded";
+    }
+    setStatus("PDF downloaded and uploaded to Firebase Storage.", "success");
   } catch (error) {
     console.error(error);
-    storageStatus.textContent = "Export failed";
-    setStatus(error.message || "Failed to export the PDF.", "error");
-  } finally {
-    exportBtn.disabled = false;
+    if (storageStatus) {
+      storageStatus.textContent = "Upload failed";
+    }
+    setStatus("PDF downloaded locally, but Firebase Storage upload failed.", "error");
   }
 }
 
-function buildPdfBlob(path) {
+function buildPdfBlob(goal, difficulty, content) {
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF();
   let y = 20;
 
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(20);
-  pdf.text("PathFinder AI Learning Path", 14, y);
-
+  pdf.text("PathFinder AI", 14, y);
   y += 10;
+
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(12);
-  pdf.text(`Goal: ${path.goal}`, 14, y);
+  pdf.text(`Goal: ${goal}`, 14, y);
   y += 8;
-  pdf.text(`Difficulty: ${path.difficulty}`, 14, y);
-  y += 8;
-  pdf.text(`User ID: ${userId}`, 14, y);
-  y += 12;
+  pdf.text(`Difficulty: ${difficulty}`, 14, y);
+  y += 10;
 
-  path.steps.forEach((step) => {
-    if (y > 250) {
+  pdf.setFont("helvetica", "bold");
+  pdf.text(content.title, 14, y);
+  y += 8;
+  pdf.setFont("helvetica", "normal");
+  const introLines = pdf.splitTextToSize(content.description, 180);
+  pdf.text(introLines, 14, y);
+  y += introLines.length * 6 + 8;
+
+  content.steps.forEach((step, index) => {
+    if (y > 255) {
       pdf.addPage();
       y = 20;
     }
 
     pdf.setFont("helvetica", "bold");
-    pdf.text(`${step.step}. ${step.title}`, 14, y);
+    pdf.text(`${index + 1}. ${step.title}`, 14, y);
     y += 7;
 
     pdf.setFont("helvetica", "normal");
-    const bodyLines = pdf.splitTextToSize(step.description, 180);
-    pdf.text(bodyLines, 14, y);
-    y += bodyLines.length * 6 + 2;
-    pdf.text(`Duration: ${step.duration}`, 14, y);
-    y += 7;
-    pdf.text(`Outcome: ${step.outcome}`, 14, y);
-    y += 12;
+    const lines = pdf.splitTextToSize(step.description, 180);
+    pdf.text(lines, 14, y);
+    y += lines.length * 6 + 6;
   });
 
   return pdf.output("blob");
-}
-
-function subscribeToCommunityPaths() {
-  const communityQuery = query(
-    collection(db, "learningPaths"),
-    orderBy("createdAt", "desc"),
-    limit(8)
-  );
-
-  onSnapshot(communityQuery, (snapshot) => {
-    if (snapshot.empty) {
-      communityFeed.innerHTML = '<div class="community-empty">No community paths yet. Generate the first one.</div>';
-      communityCount.textContent = "0 live paths";
-      return;
-    }
-
-    const docs = snapshot.docs.map((docItem) => ({
-      id: docItem.id,
-      ...docItem.data()
-    }));
-
-    communityCount.textContent = `${docs.length} live paths`;
-    communityFeed.innerHTML = docs.map((item) => {
-      const createdAt = item.createdAt?.toDate ? item.createdAt.toDate().toLocaleString() : "Just now";
-      const previewSteps = Array.isArray(item.steps) ? item.steps.slice(0, 3) : [];
-
-      return `
-        <article class="community-card">
-          <header>
-            <div>
-              <h3>${escapeHtml(item.goal || "Untitled Goal")}</h3>
-              <p>${escapeHtml(item.difficulty || "Unknown difficulty")}</p>
-            </div>
-            <span class="pill">${escapeHtml(createdAt)}</span>
-          </header>
-          <p><strong>User:</strong> ${escapeHtml(item.userId || "anonymous")}</p>
-          <ul>
-            ${previewSteps.map((step) => `<li>${escapeHtml(step.title || `Step ${step.step}`)}</li>`).join("")}
-          </ul>
-        </article>
-      `;
-    }).join("");
-  }, (error) => {
-    console.error(error);
-    setStatus("Realtime community feed failed to load. Check Firestore indexes and rules.", "error");
-  });
-}
-
-function buildDemoRoadmap({ goal, difficulty }) {
-  const trackTone = difficulty === "Advanced"
-    ? "with project depth, optimization, and system design focus"
-    : difficulty === "Intermediate"
-      ? "with steady practice and portfolio building"
-      : "from fundamentals to confidence-building practice";
-
-  return {
-    goal,
-    difficulty,
-    provider: "demo-fallback",
-    metadata: {
-      model: "local-demo",
-      source: "frontend-fallback"
-    },
-    steps: [
-      {
-        title: `Build the foundation for ${goal}`,
-        description: `Start ${trackTone}. Learn the core concepts, vocabulary, and setup needed to begin effectively.`,
-        duration: "Week 1",
-        outcome: "A clear understanding of the basics and a working environment."
-      },
-      {
-        title: "Practice guided exercises",
-        description: "Work through beginner-friendly or progressively harder exercises that reinforce each core concept with repetition.",
-        duration: "Week 2",
-        outcome: "Improved fluency through structured hands-on practice."
-      },
-      {
-        title: "Create a mini project",
-        description: `Apply ${goal} in a small but complete project to connect theory with real-world implementation.`,
-        duration: "Week 3",
-        outcome: "A tangible proof-of-learning project for your portfolio."
-      },
-      {
-        title: "Expand into advanced use cases",
-        description: "Study tooling, debugging, best practices, and more realistic scenarios that mirror professional workflows.",
-        duration: "Week 4",
-        outcome: "Broader problem-solving ability and stronger practical confidence."
-      },
-      {
-        title: "Ship a capstone and review",
-        description: "Finish with a polished capstone, document what you learned, and identify your next specialization steps.",
-        duration: "Week 5",
-        outcome: "A complete roadmap cycle with reflection and next-step readiness."
-      }
-    ]
-  };
 }
 
 function getOrCreateUserId() {
@@ -423,9 +356,27 @@ function getOrCreateUserId() {
   return generated;
 }
 
-function toggleGenerationState(isLoading) {
-  generateBtn.disabled = isLoading;
-  generateBtn.textContent = isLoading ? "Generating..." : "Generate Path";
+function setGeneratingState(label) {
+  generateBtn.disabled = true;
+  generateBtn.textContent = label;
+}
+
+function startGenerateCooldown() {
+  nextGenerateAllowedAt = Date.now() + GENERATION_COOLDOWN_MS;
+
+  if (cooldownTimeoutId) {
+    clearTimeout(cooldownTimeoutId);
+  }
+
+  generateBtn.disabled = true;
+  generateBtn.textContent = "Wait 60s";
+
+  cooldownTimeoutId = window.setTimeout(() => {
+    nextGenerateAllowedAt = 0;
+    cooldownTimeoutId = null;
+    generateBtn.disabled = false;
+    generateBtn.textContent = "Generate Path";
+  }, GENERATION_COOLDOWN_MS);
 }
 
 function setStatus(message, type) {
@@ -446,6 +397,51 @@ function setStatus(message, type) {
 
 function sanitizeForFileName(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+function truncateText(value, maxLength) {
+  const text = String(value || "").trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength).trimEnd()}...`;
+}
+
+function setupStepPopupBehavior() {
+  if (!stepModal || !modalTitle || !modalBody) {
+    return;
+  }
+
+  const stepButtons = roadmapCard.querySelectorAll(".roadmap-accordion");
+
+  stepButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      openStepModal(
+        button.dataset.stepTitle || "Step",
+        button.dataset.stepDescription || "No description available."
+      );
+    });
+  });
+}
+
+function openStepModal(title, description) {
+  if (!stepModal || !modalTitle || !modalBody) {
+    return;
+  }
+
+  modalTitle.textContent = title;
+  modalBody.textContent = description;
+  stepModal.classList.add("open");
+  stepModal.setAttribute("aria-hidden", "false");
+}
+
+function closeStepModal() {
+  if (!stepModal) {
+    return;
+  }
+
+  stepModal.classList.remove("open");
+  stepModal.setAttribute("aria-hidden", "true");
 }
 
 function escapeHtml(value) {
