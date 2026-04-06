@@ -198,12 +198,14 @@ function buildFallbackRoadmap(goal, difficulty) {
     : difficulty === "Intermediate"
       ? "with hands-on projects and steady skill-building."
       : "from fundamentals through confidence-building practice.";
+  const goalKey = String(goal).toLowerCase();
+  const tailoredSteps = getTailoredFallbackSteps(goalKey);
 
   return {
     title: `${goal} Learning Roadmap`,
     description: `A practical 5-step backup roadmap for learning ${goal} ${tone}`,
     source: "fallback",
-    steps: [
+    steps: tailoredSteps || [
       {
         title: `Learn the fundamentals of ${goal}`,
         description: `Start with the core concepts, vocabulary, and tools needed to begin ${goal} successfully.`
@@ -226,6 +228,85 @@ function buildFallbackRoadmap(goal, difficulty) {
       }
     ]
   };
+}
+
+function getTailoredFallbackSteps(goalKey) {
+  if (goalKey.includes("react")) {
+    return [
+      {
+        title: "JSX, components, and props",
+        description: "Build small components and pass data through props to understand React’s component model."
+      },
+      {
+        title: "State, events, and hooks",
+        description: "Use useState/useEffect and event handlers to manage UI updates and side effects."
+      },
+      {
+        title: "Routing and data fetching",
+        description: "Add React Router and fetch data from an API to create a multi-page feel."
+      },
+      {
+        title: "Forms, validation, and patterns",
+        description: "Handle inputs, validation, and reusable component patterns for real-world UIs."
+      },
+      {
+        title: "Project: build and deploy",
+        description: "Create a small app (task manager or dashboard) and deploy it for your portfolio."
+      }
+    ];
+  }
+
+  if (goalKey.includes("dsa") || goalKey.includes("data structure") || goalKey.includes("algorithm")) {
+    return [
+      {
+        title: "Core data structures",
+        description: "Arrays, strings, linked lists, stacks, queues, and hash maps with basic operations."
+      },
+      {
+        title: "Two pointers and sliding window",
+        description: "Practice common patterns for arrays and strings to build speed and intuition."
+      },
+      {
+        title: "Trees and recursion",
+        description: "Implement traversals, BST basics, and recursion with clean base cases."
+      },
+      {
+        title: "Graphs and BFS/DFS",
+        description: "Learn adjacency lists, BFS/DFS, and shortest path basics."
+      },
+      {
+        title: "Dynamic programming basics",
+        description: "Solve classic DP problems and learn memoization vs tabulation."
+      }
+    ];
+  }
+
+  if (goalKey.includes("python")) {
+    return [
+      {
+        title: "Syntax and core types",
+        description: "Learn variables, strings, lists, dicts, loops, and functions."
+      },
+      {
+        title: "Modules and environments",
+        description: "Use venv and pip, and practice with standard library modules."
+      },
+      {
+        title: "File I/O and data handling",
+        description: "Read/write files, parse JSON/CSV, and handle errors."
+      },
+      {
+        title: "OOP and scripts",
+        description: "Create classes, organize code, and build small scripts."
+      },
+      {
+        title: "Project: automate something",
+        description: "Build a small automation or data processing tool and share it."
+      }
+    ];
+  }
+
+  return null;
 }
 
 function renderRoadmap(pathData) {
