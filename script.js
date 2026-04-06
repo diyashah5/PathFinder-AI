@@ -29,6 +29,8 @@ const GEMINI_MODEL = "gemini-2.5-flash";
 const COLLECTION_NAME = "learning_paths";
 const PDF_FOLDER = "learning-path-pdfs";
 const GENERATION_COOLDOWN_MS = 60000;
+const MAX_RETRY_ATTEMPTS = 3;
+const INITIAL_RETRY_DELAY_MS = 2000;
 
 const firebaseReady = !Object.values(firebaseConfig).some((value) => value.startsWith("YOUR_"));
 const geminiReady = !GEMINI_API_KEY.startsWith("YOUR_");
@@ -42,6 +44,7 @@ let currentPath = null;
 let lastSavedDocId = null;
 let nextGenerateAllowedAt = 0;
 let cooldownTimeoutId = null;
+let cooldownIntervalId = null;
 
 const form = document.getElementById("pathForm");
 const goalInput = document.getElementById("goalInput");
@@ -93,6 +96,8 @@ async function handleGeneratePath(event) {
 
   if (Date.now() < nextGenerateAllowedAt) {
     const secondsRemaining = Math.ceil((nextGenerateAllowedAt - Date.now()) / 1000);
+    generateBtn.disabled = true;
+    updateCooldownLabel();
     setStatus(`Rate limit guard active. Please wait ${secondsRemaining} seconds.`, "error");
     return;
   }
@@ -145,34 +150,48 @@ async function handleGeneratePath(event) {
 async function generateLearningPath(goal, difficulty) {
   const prompt = `Create a structured 5-step learning path for ${goal} at ${difficulty} level. Return strictly as JSON with "title", "description", and "steps" array. Each item in "steps" must include "title" and "description".`;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+  let response;
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": GEMINI_API_KEY
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            {
-              text: prompt
-            }
-          ]
+  for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt += 1) {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: prompt
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          responseMimeType: "application/json"
         }
-      ],
-      generationConfig: {
-        temperature: 0.7,
-        responseMimeType: "application/json"
-      }
-    })
-  });
+      })
+    });
 
-  if (!response.ok) {
-    const error = new Error(`Gemini request failed with status ${response.status}.`);
-    error.status = response.status;
-    throw error;
+    if (response.ok) {
+      break;
+    }
+
+    if (response.status !== 429 || attempt === MAX_RETRY_ATTEMPTS) {
+      const error = new Error(`Gemini request failed with status ${response.status}.`);
+      error.status = response.status;
+      throw error;
+    }
+
+    const retryDelayMs = INITIAL_RETRY_DELAY_MS * (2 ** attempt);
+    setStatus(
+      `Gemini is rate-limiting requests. Retrying in ${Math.ceil(retryDelayMs / 1000)} seconds...`,
+      "loading"
+    );
+    await wait(retryDelayMs);
   }
 
   const data = await response.json();
@@ -367,16 +386,38 @@ function startGenerateCooldown() {
   if (cooldownTimeoutId) {
     clearTimeout(cooldownTimeoutId);
   }
+  if (cooldownIntervalId) {
+    clearInterval(cooldownIntervalId);
+  }
 
   generateBtn.disabled = true;
-  generateBtn.textContent = "Wait 60s";
+  updateCooldownLabel();
+
+  cooldownIntervalId = window.setInterval(() => {
+    updateCooldownLabel();
+  }, 1000);
 
   cooldownTimeoutId = window.setTimeout(() => {
     nextGenerateAllowedAt = 0;
     cooldownTimeoutId = null;
+    if (cooldownIntervalId) {
+      clearInterval(cooldownIntervalId);
+      cooldownIntervalId = null;
+    }
     generateBtn.disabled = false;
     generateBtn.textContent = "Generate Path";
   }, GENERATION_COOLDOWN_MS);
+}
+
+function updateCooldownLabel() {
+  const secondsLeft = Math.max(1, Math.ceil((nextGenerateAllowedAt - Date.now()) / 1000));
+  generateBtn.textContent = `Wait ${secondsLeft}s...`;
+}
+
+function wait(durationMs) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, durationMs);
+  });
 }
 
 function setStatus(message, type) {
