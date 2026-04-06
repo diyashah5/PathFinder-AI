@@ -70,6 +70,27 @@ if (modalClose && stepModal) {
 form.addEventListener("submit", handleGeneratePath);
 exportBtn.addEventListener("click", exportCurrentPathAsPdf);
 
+async function saveRoadmapToCloud({ goal, difficulty, content, userId }) {
+  if (!firebaseReady || !db) {
+    return null;
+  }
+
+  try {
+    const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+      goal,
+      difficulty,
+      content,
+      timestamp: serverTimestamp(),
+      userId
+    });
+
+    return docRef.id;
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
+
 async function handleGeneratePath(event) {
   event.preventDefault();
 
@@ -96,22 +117,7 @@ async function handleGeneratePath(event) {
     exportBtn.disabled = false;
     lastGeneratedAt.textContent = `Generated ${new Date().toLocaleString()}`;
 
-    if (firebaseReady) {
-      try {
-        const docRef = await addDoc(collection(db, COLLECTION_NAME), {
-          goal,
-          difficulty,
-          content,
-          timestamp: serverTimestamp(),
-          userId
-        });
-
-        lastSavedDocId = docRef.id;
-      } catch (saveError) {
-        console.error(saveError);
-        lastSavedDocId = null;
-      }
-    }
+    lastSavedDocId = await saveRoadmapToCloud({ goal, difficulty, content, userId });
     if (content.source === "fallback") {
       setStatus("Gemini is busy right now, so a local backup roadmap was generated for your demo.", "success");
     } else {
@@ -136,22 +142,12 @@ async function handleGeneratePath(event) {
       exportBtn.disabled = false;
       lastGeneratedAt.textContent = `Generated ${new Date().toLocaleString()}`;
 
-      if (firebaseReady) {
-        try {
-          const docRef = await addDoc(collection(db, COLLECTION_NAME), {
-            goal,
-            difficulty,
-            content: fallbackContent,
-            timestamp: serverTimestamp(),
-            userId
-          });
-
-          lastSavedDocId = docRef.id;
-        } catch (saveError) {
-          console.error(saveError);
-          lastSavedDocId = null;
-        }
-      }
+      lastSavedDocId = await saveRoadmapToCloud({
+        goal,
+        difficulty,
+        content: fallbackContent,
+        userId
+      });
       setStatus("Gemini is busy right now, so a local backup roadmap was generated for your demo.", "success");
     } else {
       setStatus(error.message || "Unable to generate the learning path.", "error");
